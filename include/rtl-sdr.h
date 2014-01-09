@@ -242,13 +242,23 @@ RTLSDR_API int rtlsdr_get_tuner_gain(rtlsdr_dev_t *dev);
  */
 RTLSDR_API int rtlsdr_set_tuner_if_gain(rtlsdr_dev_t *dev, int stage, int gain);
 
+enum rtl_sdr_gain_mode {
+	GAIN_MODE_AGC=0,
+	GAIN_MODE_MANUAL=1,
+	GAIN_MODE_LINEARITY=2,
+	GAIN_MODE_SENSITIVITY=3
+};
+
 /*!
  * Set the gain mode (automatic/manual) for the device.
  * Manual gain mode must be enabled for the gain setter function to work.
  *
+ * Advanced gain modes can be enabled. If not implemented, the mode with
+ * the highest number will be set
  * \param dev the device handle given by rtlsdr_open()
  * \param manual gain mode, 1 means manual gain mode shall be enabled.
- * \return 0 on success
+ * \return <= 0 on error, 0 on success for GAIN_MODE_AGC and GAIN_MODE_MANUAL (compatiblity),
+ * \return the mode supplied on success or the highest mode supported
  */
 RTLSDR_API int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int manual);
 

@@ -992,6 +992,7 @@ static int r82xx_read_gain(struct r82xx_priv *priv)
  */
 
 #define VGA_BASE_GAIN	-47
+#define MANUAL_GAIN_VGA_INDEX 8
 static const int r82xx_vga_gain_steps[]  = {
 	0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36
 };
@@ -1004,35 +1005,90 @@ static const int r82xx_mixer_gain_steps[]  = {
 	0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
 };
 
+enum {
+	GAIN_MODE_AGC=0,
+	GAIN_MODE_MANUAL=1,
+	GAIN_MODE_LINEARITY=2,
+	GAIN_MODE_SENSITIVITY=3
+};
+
+#define GAIN_MODE_MAX 3
+
+#define SIZE_GAIN_TABLE	22
+
+static const struct gain_index_table {
+	uint8_t lna_gain_index[SIZE_GAIN_TABLE];
+	uint8_t mix_gain_index[SIZE_GAIN_TABLE];
+	uint8_t vga_gain_index[SIZE_GAIN_TABLE];
+} r82xx_gain_index_table[2] =
+{
+	{ // optimized for linearity
+	  {15,15,13,13,12,10, 9, 9, 8, 7, 7, 6, 6, 6, 6, 5, 5, 4, 3, 3, 2, 1}, // LNA
+	  {12,10,10, 9, 8, 7, 6, 6, 5, 5, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2, 1, 0}, // Mixer
+	  {13,13,12,11,11,11,11,10,10,10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 4, 4, 4}, // VGA
+	},
+	{ // optimized for sensitivty
+	  {15,15,13,13,13,13,13,13,13,13,13,12,11,11,10, 9, 8, 7, 6, 5, 4, 3}, // LNA
+	  {12,12,12,12,12,12,12,12,11,11,10,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}, // Mixer
+	  {13,12,12,11,10, 9, 8, 7, 6, 5, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3}, // VGA
+	}
+};
+
+#define MAX_GAIN_TABLE_SIZE (sizeof(r82xx_lna_gain_steps)/sizeof(r82xx_lna_gain_steps[0]) +\
+	sizeof(r82xx_mixer_gain_steps)/sizeof(r82xx_mixer_gain_steps[0]))
+static int r82xx_gain_table_len;
+static int r82xx_gain_table[MAX_GAIN_TABLE_SIZE];
+
 int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 {
 	int rc;
 
 	if (priv->gain_mode) {
 		int i, total_gain = 0;
-		uint8_t mix_index = 0, lna_index = 0;
+		uint8_t mix_index = 0, lna_index = 0, vga_index = 0;
 		uint8_t data[4];
 
 		rc = r82xx_read(priv, 0x00, data, sizeof(data));
 		if (rc < 0)
 			return rc;
 
-		/* set fixed VGA gain for now (16.3 dB) */
-		rc = r82xx_write_reg_mask(priv, 0x0c, 0x08, 0x9f);
+		switch (priv->gain_mode) {
+		case GAIN_MODE_MANUAL: /* original algorithm */
+			/* set fixed VGA gain for now (16.3 dB) */
+			vga_index = MANUAL_GAIN_VGA_INDEX;
+
+			for (i = 0; i < 15; i++) {
+				if (total_gain >= gain)
+					break;
+
+				total_gain += r82xx_lna_gain_steps[++lna_index];
+
+				if (total_gain >= gain)
+					break;
+
+				total_gain += r82xx_mixer_gain_steps[++mix_index];
+			}
+			break;
+		case GAIN_MODE_LINEARITY:
+		case GAIN_MODE_SENSITIVITY:
+			{
+				const struct gain_index_table *t;
+				t = &r82xx_gain_index_table[priv->gain_mode == GAIN_MODE_LINEARITY ? 0 : 1 ];
+
+				for (i = r82xx_gain_table_len - 1; i>0; i--)
+					if (gain >= r82xx_gain_table[i])
+						break;
+
+				lna_index = t->lna_gain_index[SIZE_GAIN_TABLE-i-1];
+				mix_index = t->mix_gain_index[SIZE_GAIN_TABLE-i-1];
+				vga_index = t->vga_gain_index[SIZE_GAIN_TABLE-i-1];
+				break;
+			}
+		}
+		/* set VGA gain */
+		rc = r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x9f);
 		if (rc < 0)
 			return rc;
-
-		for (i = 0; i < 15; i++) {
-			if (total_gain >= gain)
-				break;
-
-			total_gain += r82xx_lna_gain_steps[++lna_index];
-
-			if (total_gain >= gain)
-				break;
-
-			total_gain += r82xx_mixer_gain_steps[++mix_index];
-		}
 
 		/* set LNA gain */
 		rc = r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
@@ -1048,52 +1104,127 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 	return 0;
 }
 
-int r82xx_enable_manual_gain(struct r82xx_priv *priv, uint8_t manual)
+static void r82xx_compute_gain_table(struct r82xx_priv *priv);
+
+int r82xx_enable_manual_gain(struct r82xx_priv *priv, uint8_t gain_mode)
 {
 	int rc;
 	uint8_t data[4];
 
-	if (priv->gain_mode == manual)
-		return 0;
+	if (gain_mode > GAIN_MODE_MAX)
+		gain_mode = GAIN_MODE_MAX;
 
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
-	if (rc < 0)
-		return rc;
+	if (priv->gain_mode != gain_mode) {
 
-	if (manual) {
-		/* LNA auto off */
-		rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
+		rc = r82xx_read(priv, 0x00, data, sizeof(data));
 		if (rc < 0)
 			return rc;
 
-		 /* Mixer auto off */
-		rc = r82xx_write_reg_mask(priv, 0x07, 0, 0x10);
+		if (gain_mode) {
+			/* LNA auto off */
+			rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
+			if (rc < 0)
+				return rc;
+
+			 /* Mixer auto off */
+			rc = r82xx_write_reg_mask(priv, 0x07, 0, 0x10);
+			if (rc < 0)
+				return rc;
+
+		} else {
+			/* LNA */
+			rc = r82xx_write_reg_mask(priv, 0x05, 0, 0x10);
+			if (rc < 0)
+				return rc;
+
+			/* Mixer */
+			rc = r82xx_write_reg_mask(priv, 0x07, 0x10, 0x10);
+			if (rc < 0)
+				return rc;
+
+			/* set fixed VGA gain for now (26.5 dB) */
+			rc = r82xx_write_reg_mask(priv, 0x0c, 0x0b, 0x9f);
+			if (rc < 0)
+				return rc;
+		}
+		rc = r82xx_read(priv, 0x00, data, sizeof(data));
 		if (rc < 0)
 			return rc;
 
-	} else {
-		/* LNA */
-		rc = r82xx_write_reg_mask(priv, 0x05, 0, 0x10);
-		if (rc < 0)
-			return rc;
-
-		/* Mixer */
-		rc = r82xx_write_reg_mask(priv, 0x07, 0x10, 0x10);
-		if (rc < 0)
-			return rc;
-
-		/* set fixed VGA gain for now (26.5 dB) */
-		rc = r82xx_write_reg_mask(priv, 0x0c, 0x0b, 0x9f);
-		if (rc < 0)
-			return rc;
+		priv->gain_mode = gain_mode;
+		r82xx_compute_gain_table(priv);
 	}
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
-	if (rc < 0)
-		return rc;
 
-	priv->gain_mode = manual;
+	if (priv->gain_mode == GAIN_MODE_MANUAL)
+		return 0; /* compatibility to old mode API */
+	return priv->gain_mode;
+}
 
+static int32_t LNA_stage[ARRAY_SIZE(r82xx_lna_gain_steps)];
+static int32_t Mixer_stage[ARRAY_SIZE(r82xx_mixer_gain_steps)];
+static int32_t IF_stage[ARRAY_SIZE(r82xx_vga_gain_steps)];
+
+static void r82xx_calculate_stage_gains(void)
+{
+		unsigned int i;
+		LNA_stage[0] = r82xx_lna_gain_steps[0];
+		for (i=1; i<ARRAY_SIZE(r82xx_lna_gain_steps); i++)
+			LNA_stage[i] = LNA_stage[i-1] + r82xx_lna_gain_steps[i];
+
+		Mixer_stage[0] = r82xx_mixer_gain_steps[0];
+		for (i=1; i<ARRAY_SIZE(r82xx_mixer_gain_steps); i++)
+			Mixer_stage[i] = Mixer_stage[i-1] + r82xx_mixer_gain_steps[i];
+
+		IF_stage[0] = VGA_BASE_GAIN;
+		for (i=1; i<ARRAY_SIZE(r82xx_vga_gain_steps); i++)
+			IF_stage[i] = IF_stage[i-1] + r82xx_vga_gain_steps[i];
+}
+
+int r82xx_get_tuner_gains(struct r82xx_priv *priv, const int **ptr, int *len)
+{
+	if (!len & !ptr)
+		return -1;
+	*len = r82xx_gain_table_len * sizeof(int);
+	*ptr = r82xx_gain_table;
 	return 0;
+}
+
+static void r82xx_compute_gain_table(struct r82xx_priv *priv)
+{
+	int i;
+
+	switch (priv->gain_mode) {
+		case GAIN_MODE_AGC:
+		case GAIN_MODE_MANUAL:
+		{
+			int len = 0, total_gain = 0;
+			r82xx_gain_table[len++] = 0;
+			for (i=1; i<16; i++) {
+				total_gain += r82xx_lna_gain_steps[i];
+				if (total_gain > r82xx_gain_table[len-1])
+					r82xx_gain_table[len++] = total_gain;
+				total_gain += r82xx_mixer_gain_steps[i];
+				if (total_gain > r82xx_gain_table[len-1])
+					r82xx_gain_table[len++] = total_gain;
+			}
+			r82xx_gain_table_len = len;
+			break;
+		}
+		case GAIN_MODE_LINEARITY:
+		case GAIN_MODE_SENSITIVITY:
+		{
+			const struct gain_index_table *t;
+			t = &r82xx_gain_index_table[priv->gain_mode == GAIN_MODE_LINEARITY ? 0 : 1 ];
+			for (i=0; i<SIZE_GAIN_TABLE; i++)
+				r82xx_gain_table[i] =
+					LNA_stage[t->lna_gain_index[SIZE_GAIN_TABLE-i-1]] +
+					Mixer_stage[t->mix_gain_index[SIZE_GAIN_TABLE-i-1]] +
+					IF_stage[t->vga_gain_index[SIZE_GAIN_TABLE-i-1]] -
+					IF_stage[MANUAL_GAIN_VGA_INDEX]; // normalize to same VGA gain as GAIN_MODE_MANUAL
+			r82xx_gain_table_len = SIZE_GAIN_TABLE;
+			break;
+		}
+	}
 }
 
 /* Bandwidth contribution by low-pass filter. */
@@ -1333,6 +1464,9 @@ int r82xx_init(struct r82xx_priv *priv)
 		goto err;
 
 	rc = r82xx_sysfreq_sel(priv, 0, TUNER_DIGITAL_TV, SYS_DVBT);
+
+	r82xx_calculate_stage_gains();
+	r82xx_compute_gain_table(priv);
 
 	priv->init_done = 1;
 

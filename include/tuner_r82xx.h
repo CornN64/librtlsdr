@@ -119,5 +119,6 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain);
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t rate);
 
 int r82xx_enable_manual_gain(struct r82xx_priv *priv, uint8_t manual);
+int r82xx_get_tuner_gains(struct r82xx_priv *priv, const int **ptr, int *len);
 
 #endif
