@@ -203,10 +203,6 @@ RTLSDR_API int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, int *gains);
  * Set the gain for the device.
  * Manual gain mode must be enabled for this to work.
  *
- * Valid gain values (in tenths of a dB) for the E4000 tuner:
- * -10, 15, 40, 65, 90, 115, 140, 165, 190,
- * 215, 240, 290, 340, 420, 430, 450, 470, 490
- *
  * Valid gain values may be queried with \ref rtlsdr_get_tuner_gains function.
  *
  * \param dev the device handle given by rtlsdr_open()
@@ -242,6 +238,9 @@ RTLSDR_API int rtlsdr_get_tuner_gain(rtlsdr_dev_t *dev);
  */
 RTLSDR_API int rtlsdr_set_tuner_if_gain(rtlsdr_dev_t *dev, int stage, int gain);
 
+
+#define DESCRIPTION_MAXLEN 256 /*!< description max. 256 chars */
+
 /*!
  * Get a list of gains and description of the gain stages supported by the tuner.
  * NOTE: The gains argument must be preallocated by the caller. If NULL is
@@ -249,16 +248,14 @@ RTLSDR_API int rtlsdr_set_tuner_if_gain(rtlsdr_dev_t *dev, int stage, int gain);
  *
  * \param dev the device handle given by rtlsdr_open()
  * \param stage the stage to get the array of gain settings. If no such
- *   stage exists, return error
- * \gains array to hold the different gain settings for this stage
- *   - use NULL to get the size of the array returned by the function
+ * 				stage exists, return error
+ * \param gains array to hold the different gain settings for this stage,
+ *  	        use NULL to get the size of the array returned by the function
  * \param description the textual description of the respective stage
- *   is copied into this string (description max. 256 chars)
- *   Optional: can be NULL
+ * 				is copied into this string (description max. 256 chars).
+ * 				Optional: can be NULL
  * \return <= 0 on error, number of available (returned) gain values otherwise
- * \def DESCRIPTION_MAXLEN description max. 256 chars
  */
-#define DESCRIPTION_MAXLEN 256
 RTLSDR_API int rtlsdr_get_tuner_stage_gains(rtlsdr_dev_t *dev, uint8_t stage, int32_t *gains, char *description);
 
 /*!
@@ -266,16 +263,16 @@ RTLSDR_API int rtlsdr_get_tuner_stage_gains(rtlsdr_dev_t *dev, uint8_t stage, in
  *
  * \param dev the device handle given by rtlsdr_open()
  * \param stage the stage to set gain for
- * \param in tenths of a dB, e.g. -30 means -3.0 dB.
+ * \param gain in tenths of a dB, e.g. -30 means -3.0 dB.
  * \return <= 0 on error, 0 on success
  */
 RTLSDR_API int rtlsdr_set_tuner_stage_gain(rtlsdr_dev_t *dev, uint8_t stage, int32_t gain);
 
 enum rtl_sdr_gain_mode {
-	GAIN_MODE_AGC=0,
-	GAIN_MODE_MANUAL=1,
-	GAIN_MODE_LINEARITY=2,
-	GAIN_MODE_SENSITIVITY=3
+	GAIN_MODE_AGC=0,		/*!< automatic gain control */
+	GAIN_MODE_MANUAL=1,		/*!< manual gain control */
+	GAIN_MODE_LINEARITY=2,	/*!< manual gain control optimized for linearity */
+	GAIN_MODE_SENSITIVITY=3	/*!< manual gain control optimized for sensitivity */
 };
 
 /*!
@@ -296,7 +293,7 @@ RTLSDR_API int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int manual);
  * according to the requested sample rate for tuners where this is possible.
  *
  * \param dev the device handle given by rtlsdr_open()
- * \param samp_rate the sample rate to be set, possible values are:
+ * \param rate the sample rate to be set, possible values are:
  * 		    225001 - 300000 Hz
  * 		    900001 - 3200000 Hz
  * 		    sample loss is to be expected for rates > 2400000
@@ -320,13 +317,13 @@ RTLSDR_API uint32_t rtlsdr_get_sample_rate(rtlsdr_dev_t *dev);
  * \param test mode, 1 means enabled, 0 disabled
  * \return 0 on success
  */
-RTLSDR_API int rtlsdr_set_testmode(rtlsdr_dev_t *dev, int on);
+RTLSDR_API int rtlsdr_set_testmode(rtlsdr_dev_t *dev, int test);
 
 /*!
  * Enable or disable the internal digital AGC of the RTL2832.
  *
  * \param dev the device handle given by rtlsdr_open()
- * \param digital AGC mode, 1 means enabled, 0 disabled
+ * \param on digital AGC mode, 1 means enabled, 0 disabled
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_set_agc_mode(rtlsdr_dev_t *dev, int on);
