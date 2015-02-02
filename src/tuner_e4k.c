@@ -40,7 +40,7 @@
 #define MHZ(x)	((x)*1000*1000)
 #define KHZ(x)	((x)*1000)
 
-enum rtl_sdr_gain_mode {
+enum {
 	GAIN_MODE_AGC=0,
 	GAIN_MODE_MANUAL=1,
 	GAIN_MODE_LINEARITY=2,
