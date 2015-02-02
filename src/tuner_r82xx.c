@@ -1167,7 +1167,7 @@ static int32_t IF_stage[ARRAY_SIZE(r82xx_vga_gain_steps)];
 
 static void r82xx_calculate_stage_gains(void)
 {
-		int i;
+		unsigned int i;
 		LNA_stage[0] = r82xx_lna_gain_steps[0];
 		for (i=1; i<ARRAY_SIZE(r82xx_lna_gain_steps); i++)
 			LNA_stage[i] = LNA_stage[i-1] + r82xx_lna_gain_steps[i];
