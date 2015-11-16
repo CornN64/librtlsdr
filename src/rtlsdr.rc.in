@@ -1,5 +1,10 @@
 
-#include <afxres.h>
+#include "WinResrc.h"
+
+#ifdef IDC_STATIC
+#undef IDC_STATIC
+#endif
+#define IDC_STATIC              (-1)
 
 VS_VERSION_INFO VERSIONINFO
   FILEVERSION 0,0,0,0
