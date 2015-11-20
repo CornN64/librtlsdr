@@ -24,6 +24,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <errno.h>
 #include <string.h>
 
 #include "rtlsdr_i2c.h"
@@ -1227,6 +1228,86 @@ static void r82xx_compute_gain_table(struct r82xx_priv *priv)
 	}
 }
 
+static int r82xx_set_lna_gain(struct r82xx_priv *priv, int32_t gain)
+{
+	uint32_t lna_index;
+	for(lna_index = 0; lna_index < ARRAY_SIZE(LNA_stage); ++lna_index) {
+		if(LNA_stage[lna_index] == gain) {
+			int rc;
+			uint8_t data[4];
+			rc = r82xx_read(priv, 0x00, data, sizeof(data));
+			if (rc < 0)
+				return rc;
+			/* set LNA gain */
+			return r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
+		}
+	}
+	return -EINVAL;
+}
+
+static int r82xx_set_mixer_gain(struct r82xx_priv *priv, int32_t gain)
+{
+	uint32_t mixer_index;
+	for(mixer_index = 0; mixer_index < ARRAY_SIZE(Mixer_stage); ++mixer_index) {
+		if(Mixer_stage[mixer_index] == gain) {
+			uint8_t data[4];
+			int rc;
+			rc = r82xx_read(priv, 0x00, data, sizeof(data));
+			if (rc < 0)
+				return rc;
+
+			/* set Mixer gain */
+			return r82xx_write_reg_mask(priv, 0x07, mixer_index, 0x0f);
+		}
+	}
+	return -EINVAL;
+}
+
+static int r82xx_set_VGA_gain(struct r82xx_priv *priv, int32_t gain)
+{
+	uint32_t IF_index;
+	for(IF_index = 0; IF_index < ARRAY_SIZE(IF_stage); ++IF_index) {
+		if(IF_stage[IF_index] == gain) {
+			uint8_t data[4];
+			int rc;
+			rc = r82xx_read(priv, 0x00, data, sizeof(data));
+			if (rc < 0)
+				return rc;
+			/* set VGA gain */
+			return r82xx_write_reg_mask(priv, 0x0c, IF_index, 0x9f);
+		}
+	}
+	return -EINVAL;
+}
+
+int r82xx_get_tuner_stage_gains(struct r82xx_priv *priv, uint8_t stage, const int32_t **gains, const char **description)
+{
+	switch(stage) {
+		case 0: {
+			static const char LNA_desc[] = "LNA";
+
+			*gains = LNA_stage;
+			*description = LNA_desc;
+			return ARRAY_SIZE(LNA_stage);
+		}
+		case 1: {
+			static const char Mixer_desc[] = "Mixer";
+
+			*gains = Mixer_stage;
+			*description = Mixer_desc;
+			return ARRAY_SIZE(Mixer_stage);
+		}
+		case 2: {
+			static const char IF_desc[] = "IF";
+
+			*gains = IF_stage;
+			*description = IF_desc;
+			return ARRAY_SIZE(IF_stage);
+		}
+	}
+	return 0;
+}
+
 /* Bandwidth contribution by low-pass filter. */
 static const int r82xx_if_low_pass_bw_table[] = {
 	1700000, 1600000, 1550000, 1450000, 1200000, 900000, 700000, 550000, 450000, 350000
@@ -1300,6 +1381,17 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t rate)
 
 	return priv->int_freq;
 }
+
+int r82xx_set_tuner_stage_gain(struct r82xx_priv *priv, uint8_t stage, int32_t gain)
+{
+	if (stage==0)
+		return r82xx_set_lna_gain(priv, gain);
+	else if (stage==1)
+		return r82xx_set_mixer_gain(priv, gain);
+	else
+		return r82xx_set_VGA_gain(priv, gain);
+}
+
 #undef FILT_HP_BW1
 #undef FILT_HP_BW2
 
