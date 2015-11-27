@@ -7,6 +7,7 @@ http://sdr.osmocom.org/trac/wiki/rtl-sdr
 
 
 dl8aau (Nov. 20 2015):
+https://github.com/dl8aau/librtlsdr/tree/devel1
 
 - rebased to current master
 - merged patches and fixes
