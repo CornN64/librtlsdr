@@ -193,7 +193,11 @@ static int ppm_report(uint64_t nsamples, uint64_t interval)
 
 	real_rate = nsamples * 1e9 / interval;
 	ppm = 1e6 * (real_rate / (double)samp_rate - 1.);
+#ifdef _WIN32
+	return (int)floor(ppm + 0.5);
+#else
 	return (int)round(ppm);
+#endif
 }
 
 static void ppm_test(uint32_t len)
