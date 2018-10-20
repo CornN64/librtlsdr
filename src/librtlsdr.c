@@ -1786,8 +1786,6 @@ int rtlsdr_wait_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx)
 	return rtlsdr_read_async(dev, cb, ctx, 0, 0);
 }
 
-static int _rtlsdr_free_async_buffers(rtlsdr_dev_t *dev);
-
 static int _rtlsdr_alloc_async_buffers(rtlsdr_dev_t *dev)
 {
 	unsigned int i;
@@ -1796,49 +1794,19 @@ static int _rtlsdr_alloc_async_buffers(rtlsdr_dev_t *dev)
 		return -1;
 
 	if (!dev->xfer) {
-		dev->xfer = (struct libusb_transfer **)malloc(dev->xfer_buf_num *
+		dev->xfer = malloc(dev->xfer_buf_num *
 				   sizeof(struct libusb_transfer *));
 
-		if (dev->xfer == NULL)
-			return -1;
-
-		for(i = 0; i < dev->xfer_buf_num; ++i) {
+		for(i = 0; i < dev->xfer_buf_num; ++i)
 			dev->xfer[i] = libusb_alloc_transfer(0);
-
-			if (dev->xfer[i] == NULL) {
-				while (i>0) {
-					libusb_free_transfer(dev->xfer[--i]);
-					dev->xfer[i] = NULL;
-				}
-				free(dev->xfer);
-				dev->xfer = NULL;
-				return -1;
-			}
-		}
 	}
 
 	if (!dev->xfer_buf) {
-		dev->xfer_buf = (unsigned char **)malloc(dev->xfer_buf_num *
+		dev->xfer_buf = malloc(dev->xfer_buf_num *
 					   sizeof(unsigned char *));
-		if (dev->xfer_buf == NULL) {
-			_rtlsdr_free_async_buffers(dev);
-			return -1;
-		}
 
-		for(i = 0; i < dev->xfer_buf_num; ++i) {
-			dev->xfer_buf[i] = (unsigned char*)malloc(dev->xfer_buf_len);
-
-			if (dev->xfer_buf[i] == NULL) {
-				while(i>0) {
-					free(dev->xfer_buf[--i]);
-					dev->xfer_buf[i] = NULL;
-				}
-				free(dev->xfer_buf);
-				dev->xfer_buf = NULL;
-				_rtlsdr_free_async_buffers(dev);
-				return -1;
-			}
-		}
+		for(i = 0; i < dev->xfer_buf_num; ++i)
+			dev->xfer_buf[i] = malloc(dev->xfer_buf_len);
 	}
 
 	return 0;
@@ -1890,6 +1858,9 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 	if (RTLSDR_INACTIVE != dev->async_status)
 		return -2;
 
+	dev->async_status = RTLSDR_RUNNING;
+	dev->async_cancel = 0;
+
 	dev->cb = cb;
 	dev->cb_ctx = ctx;
 
@@ -1903,12 +1874,7 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 	else
 		dev->xfer_buf_len = DEFAULT_BUF_LENGTH;
 
-	/* Check the error code. */
-	if(_rtlsdr_alloc_async_buffers(dev) < 0)
-		return -1;
-
-	dev->async_status = RTLSDR_RUNNING;
-	dev->async_cancel = 0;
+	_rtlsdr_alloc_async_buffers(dev);
 
 	for(i = 0; i < dev->xfer_buf_num; ++i) {
 	/* Sleep a little here. 
