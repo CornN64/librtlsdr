@@ -507,11 +507,19 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	else
 		val = 0x00;
 
-	rc = r82xx_write_reg_mask(priv, 0x12, val, 0x08);
+#if 1
+	//PLL dither OFF
+	val |= 0x10;
+#endif
+
+	rc = r82xx_write_reg_mask(priv, 0x12, val, 0x18);
+
 	if (rc < 0)
 		return rc;
 
 	/* sdm calculator */
+#if 0
+	//Original
 	while (vco_fra > 1) {
 		if (vco_fra > (2 * pll_ref_khz / n_sdm)) {
 			sdm = sdm + 32768 / (n_sdm / 2);
@@ -521,6 +529,10 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 		}
 		n_sdm <<= 1;
 	}
+#else
+	//Michele Bavaro http://michelebavaro.blogspot.com/2014/05/gnss-carrier-phase-rtlsdr-and.html
+	sdm = (((vco_freq<<16)+pll_ref)/(2*pll_ref)) & 0xFFFF;
+#endif
 
 	rc = r82xx_write_reg(priv, 0x16, sdm >> 8);
 	if (rc < 0)
@@ -816,7 +828,7 @@ static int r82xx_set_tv_standard(struct r82xx_priv *priv,
 			lt_att = 0x00;		/* r31[7], lt att enable */
 			flt_ext_widest = 0x00;	/* r15[7]: flt_ext_wide off */
 			polyfil_cur = 0x60;	/* r25[6:5]:min */
-#endif
+#else
 			/* 7 MHz, second table */
 			if_khz = 4570;
 			filt_cal_lo = 63000;
@@ -829,6 +841,7 @@ static int r82xx_set_tv_standard(struct r82xx_priv *priv,
 			lt_att = 0x00;		/* r31[7], lt att enable */
 			flt_ext_widest = 0x00;	/* r15[7]: flt_ext_wide off */
 			polyfil_cur = 0x60;	/* r25[6:5]:min */
+#endif
 		} else {
 			if_khz = 4570;
 			filt_cal_lo = 68500;
@@ -994,7 +1007,6 @@ static int r82xx_read_gain(struct r82xx_priv *priv)
  */
 
 #define VGA_BASE_GAIN	-47
-#define MANUAL_GAIN_VGA_INDEX 8
 static const int r82xx_vga_gain_steps[]  = {
 	0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36
 };
@@ -1007,12 +1019,23 @@ static const int r82xx_mixer_gain_steps[]  = {
 	0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
 };
 
+#if 1
+//Use Normal gain mode
 enum rtl_sdr_gain_mode {
 	GAIN_MODE_AGC=0,
 	GAIN_MODE_MANUAL=1,
 	GAIN_MODE_LINEARITY=2,
 	GAIN_MODE_SENSITIVITY=3
 };
+#else
+//Force linearity gain mode as default "manual"
+enum rtl_sdr_gain_mode {
+	GAIN_MODE_AGC=0,
+	GAIN_MODE_LINEARITY=1,
+	GAIN_MODE_MANUAL=2,
+	GAIN_MODE_SENSITIVITY=3
+};
+#endif
 
 #define GAIN_MODE_MAX 3
 
@@ -1057,7 +1080,7 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 		switch (priv->gain_mode) {
 		case GAIN_MODE_MANUAL: /* original algorithm */
 			/* set fixed VGA gain for now (16.3 dB) */
-			vga_index = MANUAL_GAIN_VGA_INDEX;
+			vga_index = 0x08;
 
 			for (i = 0; i < 15; i++) {
 				if (total_gain >= gain)
@@ -1077,7 +1100,7 @@ int r82xx_set_gain(struct r82xx_priv *priv, int gain)
 				const struct gain_index_table *t;
 				t = &r82xx_gain_index_table[priv->gain_mode == GAIN_MODE_LINEARITY ? 0 : 1 ];
 
-				for (i = r82xx_gain_table_len - 1; i>0; i--)
+				for (i = r82xx_gain_table_len - 1; i>=0; i--)
 					if (gain >= r82xx_gain_table[i])
 						break;
 
@@ -1245,17 +1268,12 @@ static void r82xx_compute_gain_table(struct r82xx_priv *priv)
 		case GAIN_MODE_AGC: 
 		case GAIN_MODE_MANUAL: 
 		{
-			int len = 0, total_gain = 0;
-			r82xx_gain_table[len++] = 0;
-			for (i=1; i<16; i++) {
-				total_gain += r82xx_lna_gain_steps[i];
-				if (total_gain > r82xx_gain_table[len-1])
-					r82xx_gain_table[len++] = total_gain;
-				total_gain += r82xx_mixer_gain_steps[i];
-				if (total_gain > r82xx_gain_table[len-1])
-					r82xx_gain_table[len++] = total_gain;
+			int lna_index = 0, mixer_index = 0, len = 0;
+			for (i=0; i<15; i++) {
+				r82xx_gain_table[len++] = LNA_stage[lna_index++] + Mixer_stage[mixer_index];
+				r82xx_gain_table[len++] = LNA_stage[lna_index] + Mixer_stage[mixer_index++];
 			}
-			r82xx_gain_table_len = len;
+			r82xx_gain_table_len = len - 1;
 			break;
 		}
 		case GAIN_MODE_LINEARITY:
@@ -1264,11 +1282,10 @@ static void r82xx_compute_gain_table(struct r82xx_priv *priv)
 			const struct gain_index_table *t;
 			t = &r82xx_gain_index_table[priv->gain_mode == GAIN_MODE_LINEARITY ? 0 : 1 ];
 			for (i=0; i<SIZE_GAIN_TABLE; i++)
-				r82xx_gain_table[i] =
+				r82xx_gain_table[i] = -163 + // normalize to same VGA gain as GAIN_MODE_MANUAL
 					LNA_stage[t->lna_gain_index[SIZE_GAIN_TABLE-i-1]] +
 					Mixer_stage[t->mix_gain_index[SIZE_GAIN_TABLE-i-1]] +
-					IF_stage[t->vga_gain_index[SIZE_GAIN_TABLE-i-1]] -
-					IF_stage[MANUAL_GAIN_VGA_INDEX]; // normalize to same VGA gain as GAIN_MODE_MANUAL
+					IF_stage[t->vga_gain_index[SIZE_GAIN_TABLE-i-1]];
 			r82xx_gain_table_len = SIZE_GAIN_TABLE;
 			break;
 		}

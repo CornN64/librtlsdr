@@ -72,6 +72,9 @@ enum rtlsdr_async_status {
 	RTLSDR_RUNNING
 };
 
+#define FIXED_IF_OFFS		100000	//(Hz) Used to shift the center IF freq to center the analog filter
+//#define FIXED_IF_OFFS		0	//(Hz) Used to shift the center IF freq to center the analog filter
+
 #define FIR_LEN 16
 
 /*
@@ -87,10 +90,29 @@ enum rtlsdr_async_status {
  * Default FIR coefficients used for DAB/FM by the Windows driver,
  * the DVB driver uses different ones
  */
+#if 0
+//Original FIR stopband ~-35dB
 static const int fir_default[FIR_LEN] = {
 	-54, -36, -41, -40, -32, -14, 14, 53,	/* 8 bit signed */
 	101, 156, 215, 273, 327, 372, 404, 421	/* 12 bit signed */
 };
+#endif
+
+#if 0
+//FIR stopband ~-76dB
+static const int fir_default[FIR_LEN] = {
+	-1,-5,-15,-35,-63,-94,-114,-99,	/* 8 bit signed */
+	-21,145,410,763,1165,1558,1872,2047	/* 12 bit signed */
+};
+#endif
+
+#if 1
+//FIR stopband ~-65dB
+static const int fir_default[FIR_LEN] = {
+	2,5,10,18,30,46,67,92,	/* 8 bit signed */
+	121,153,186,218,247,271,288,297	/* 12 bit signed */
+};
+#endif
 
 struct rtlsdr_dev {
 	libusb_context *ctx;
@@ -700,7 +722,7 @@ int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, uint32_t freq)
 	if (rtlsdr_get_xtal_freq(dev, &rtl_xtal, NULL))
 		return -2;
 
-	if_freq = ((freq * TWO_POW(22)) / rtl_xtal) * (-1);
+	if_freq = (((freq-FIXED_IF_OFFS) * TWO_POW(22)) / rtl_xtal) * (-1);
 
 	tmp = (if_freq >> 16) & 0x3f;
 	r = rtlsdr_demod_write_reg(dev, 1, 0x19, tmp, 1);
@@ -887,7 +909,7 @@ int rtlsdr_read_eeprom(rtlsdr_dev_t *dev, uint8_t *data, uint8_t offset, uint16_
 int rtlsdr_set_center_freq(rtlsdr_dev_t *dev, uint32_t freq)
 {
 	int r = -1;
-
+	
 	if (!dev || !dev->tuner)
 		return -1;
 
@@ -895,7 +917,7 @@ int rtlsdr_set_center_freq(rtlsdr_dev_t *dev, uint32_t freq)
 		r = rtlsdr_set_if_freq(dev, freq);
 	} else if (dev->tuner && dev->tuner->set_freq) {
 		rtlsdr_set_i2c_repeater(dev, 1);
-		r = dev->tuner->set_freq(dev, freq - dev->offs_freq);
+		r = dev->tuner->set_freq(dev, freq - dev->offs_freq - FIXED_IF_OFFS);
 		rtlsdr_set_i2c_repeater(dev, 0);
 	}
 
@@ -1108,16 +1130,15 @@ int rtlsdr_get_tuner_stage_gains(rtlsdr_dev_t *dev, uint8_t stage, int32_t *gain
 		return -1;
 	}
 
-	if (description) {
-		strncpy(description, desc, DESCRIPTION_MAXLEN-1);
-		description[DESCRIPTION_MAXLEN-1] = 0;
-	}
-
 	if (!gains) { /* no buffer provided, just return the count */
 		return len;
 	} else {
 		if (len)
 			memcpy(gains, gainptr, len*sizeof(*gains));
+		if (description) {
+			strncpy(description, desc, DESCRIPTION_MAXLEN-1);
+			description[DESCRIPTION_MAXLEN-1] = 0;
+		}
 		return len;
 	}
 }

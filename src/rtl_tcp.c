@@ -320,6 +320,9 @@ static void *command_worker(void *arg)
 			break;
 		case 0x05:
 			printf("set freq correction %d\n", ntohl(cmd.param));
+			rtlsdr_set_tuner_bandwidth(dev, 400000);	//Default to 400kHz IF filter
+			//rtlsdr_set_tuner_bandwidth(dev, 700000);	//Default to 700kHz IF filter
+			//rtlsdr_set_tuner_bandwidth(dev, 10000*ntohl(cmd.param));
 			rtlsdr_set_freq_correction(dev, ntohl(cmd.param));
 			break;
 		case 0x06:
